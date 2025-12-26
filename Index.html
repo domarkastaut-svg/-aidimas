@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="lt">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Apsišaukėlio žaidimas</title>
+
+<style>
+  body {
+    margin: 0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    background: #111827;
+    color: #fff;
+  }
+
+  .screen {
+    display: none;
+    min-height: 100vh;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .active {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  textarea {
+    width: 100%;
+    max-width: 420px;
+    height: 180px;
+    background: #1f2937;
+    border: none;
+    border-radius: 12px;
+    color: white;
+    padding: 12px;
+    font-size: 16px;
+  }
+
+  button {
+    margin-top: 16px;
+    padding: 14px 22px;
+    font-size: 16px;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    background: #2563eb;
+    color: white;
+  }
+
+  button.secondary { background: #374151; }
+  button.danger { background: #dc2626; }
+
+  .hold-btn {
+    margin-top: 26px;
+    width: 80%;
+    max-width: 320px;
+    height: 80px;
+    font-size: 20px;
+    background: #0f172a;
+    border: 2px solid #2563eb;
+  }
+
+  .hidden-word {
+    filter: blur(14px);
+    user-select: none;
+  }
+
+  /* ŠVELNUS OVERLAY – NEBE PER TAMSUS */
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.45);
+    pointer-events: none;
+  }
+
+  .hint {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: #1f2937;
+    border-radius: 10px;
+    font-size: 14px;
+    opacity: 0.9;
+  }
+
+  .small {
+    opacity: 0.7;
+    font-size: 14px;
+  }
+</style>
+</head>
+
+<body>
+
+<!-- SETUP -->
+<div id="setup" class="screen active">
+  <h1>Apsišaukėlio žaidimas</h1>
+  <p>Įrašyk vardus (po vieną eilutėje)</p>
+  <textarea id="names"></textarea>
+  <button onclick="startGame()">START</button>
+</div>
+
+<!-- PASS -->
+<div id="pass" class="screen">
+  <h1 id="passText"></h1>
+  <p class="small">Perduok telefoną šiam žaidėjui</p>
+  <button onclick="showReveal()">Rodyti mano informaciją</button>
+</div>
+
+<!-- REVEAL -->
+<div id="reveal" class="screen">
+  <div class="overlay"></div>
+
+  <h1 id="revealTitle" class="hidden-word">ŽODIS</h1>
+
+  <!-- HINT – BUS RODOMAS TIK APSIŠAUKĖLIUI -->
+  <div class="hint" id="hintBox" style="display:none;"></div>
+
+  <p class="small">Laikyk nuspaudęs, kad pamatytum</p>
+
+  <button class="hold-btn"
+    onpointerdown="revealWord()"
+    onpointerup="hideWord()"
+    onpointerleave="hideWord()">
+    LAIKYK
+  </button>
+
+  <button class="secondary" onclick="nextPlayer()">Uždaryti ir perduoti</button>
+</div>
+
+<!-- END -->
+<div id="end" class="screen">
+  <h1>Paruošta ✅</h1>
+  <p>Galite pradėti diskusiją</p>
+  <button onclick="restart()">New Game</button>
+</div>
+
+<script>
+/* ŽODŽIAI + UŽUOMINOS */
+const WORDS = [
+  { word: "LED lemputė", hint: "Naudojama patalpose, dažnai taupo energiją" },
+  { word: "Belaidės ausinės", hint: "Naudojama judant, be laidų" },
+  { word: "Nešiojamas kompiuteris", hint: "Naudojamas darbui ar laisvalaikiui" },
+  { word: "Banko kortelė", hint: "Naudojama atsiskaitymams" },
+  { word: "Kavos aparatas", hint: "Dažniausiai naudojamas rytais" },
+  { word: "Automobilio raktelis", hint: "Be jo nevažiuosi" },
+  { word: "Išmanusis laikrodis", hint: "Nešiojamas ant rankos" },
+  { word: "Lagaminas", hint: "Naudojamas kelionėse" },
+  { word: "Kvepalai", hint: "Susiję su kvapu ir stiliumi" },
+  { word: "USB atmintinė", hint: "Skirta duomenims perkelti" }
+];
+
+let players = [];
+let impostorIndex = 0;
+let current = 0;
+let selected = null;
+
+/* HELPERS */
+function qs(id){ return document.getElementById(id); }
+function show(id){
+  document.querySelectorAll(".screen").forEach(s=>s.classList.remove("active"));
+  qs(id).classList.add("active");
+}
+
+/* LOAD SAVED NAMES */
+window.onload = () => {
+  const saved = localStorage.getItem("apsisaukeli_names");
+  if(saved) qs("names").value = saved;
+};
+
+function startGame(){
+  players = qs("names").value.split("\n").map(v=>v.trim()).filter(Boolean);
+  if(players.length < 3){
+    alert("Reikia bent 3 žaidėjų");
+    return;
+  }
+
+  localStorage.setItem("apsisaukeli_names", qs("names").value);
+
+  impostorIndex = Math.floor(Math.random() * players.length);
+  selected = WORDS[Math.floor(Math.random() * WORDS.length)];
+  current = 0;
+
+  updatePass();
+  show("pass");
+}
+
+function updatePass(){
+  qs("passText").textContent = "Perduok telefoną: " + players[current];
+}
+
+function showReveal(){
+  const title = qs("revealTitle");
+  const hintBox = qs("hintBox");
+
+  if(current === impostorIndex){
+    title.textContent = "APSIŠAUKĖLIS";
+    hintBox.textContent = "Užuomina: " + selected.hint;
+    hintBox.style.display = "block";
+  } else {
+    title.textContent = selected.word;
+    hintBox.style.display = "none";
+  }
+
+  title.classList.add("hidden-word");
+  show("reveal");
+}
+
+function revealWord(){
+  qs("revealTitle").classList.remove("hidden-word");
+}
+
+function hideWord(){
+  qs("revealTitle").classList.add("hidden-word");
+}
+
+function nextPlayer(){
+  current++;
+  if(current >= players.length){
+    show("end");
+  } else {
+    updatePass();
+    show("pass");
+  }
+}
+
+function restart(){
+  show("setup");
+}
+</script>
+
+</body>
+</html>
